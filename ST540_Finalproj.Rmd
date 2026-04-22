@@ -1,0 +1,60 @@
+---
+title: "Bayesian Analysis Final Project"
+author: "Ryan Mersereau"
+date: "2026-04-22"
+output: pdf_document
+---
+Install needed pacakges
+```{r, include = F}
+library(rjags)
+library(tidyverse)
+library(coda)
+library(ggplot2)
+```
+
+Specify years, read in data from Jeff Sackmans ATP dataset direct from github 
+```{r}
+years <- 2019:2023
+base_url <- "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_"
+
+atp_raw <- map_dfr(years, function(yr) {
+  url <- paste0(base_url, yr, ".csv")
+  read_csv(url, show_col_types = FALSE)
+})
+```
+
+Clean and filter data
+```{r}
+# Keep only the columns we need, filter to top players and 3 surfaces
+atp_clean <- atp_raw |>
+  select(winner_name, loser_name, surface, tourney_date) |>
+  filter(surface %in% c("Clay", "Hard", "Grass")) |>
+  drop_na()
+
+# Keep only players with enough total matches (e.g., 50+ matches across all surfaces)
+# This keeps the model manageable and removes journeymen
+match_counts <- bind_rows(
+  atp_clean |> count(player = winner_name),
+  atp_clean |> count(player = loser_name)
+) |>
+  group_by(player) |>
+  summarise(total = sum(n)) |>
+  filter(total >= 50)
+
+top_players <- match_counts$player
+
+atp_filtered <- atp_clean |>
+  filter(winner_name %in% top_players,
+         loser_name  %in% top_players)
+
+cat("Matches:", nrow(atp_filtered), "\n")
+cat("Players:", n_distinct(c(atp_filtered$winner_name, atp_filtered$loser_name)), "\n")
+```
+
+Encode for JAGS: JAGS needs integer indeces instead of strings, need to map players and surfaces to numbers
+
+# Additions
+- Model for total matches greater than 50 and no filters (only prior information) 
+- Ensure player has one match per year (don't want players to retire in the middle of our timeframe)
+- Compare two or more models (random slopes, random effects (test for effect of court surface)), find lowest DIC among models
+
