@@ -41,6 +41,8 @@ match_counts <- bind_rows(
   summarise(total = sum(n)) |>
   filter(total >= 50)
 
+
+
 top_players <- match_counts$player
 
 atp_filtered <- atp_clean |>
