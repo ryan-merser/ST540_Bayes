@@ -27,7 +27,7 @@ Clean and filter data
 ```{r}
 # Keep only the columns we need, filter to top players and 3 surfaces
 atp_clean <- atp_raw |>
-  select(winner_name, loser_name, surface, tourney_date) |>
+  select(winner_name, loser_name, surface, tourney_date, winner_rank, loser_rank) |>
   filter(surface %in% c("Clay", "Hard", "Grass")) |>
   drop_na()
 
