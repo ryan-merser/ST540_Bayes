@@ -1,0 +1,31 @@
+---
+title: "Model and Jags Code"
+output: pdf_document
+date: "2026-04-22"
+---
+
+## Goal
+
+We want be able to predict the outcome of matches for tennis players who do not have much data. We also want to know if there is a considerable court surface effect.  
+
+This will be accomplished with the following steps:
+1) Fit mixed effect models with players who have played over 50 matches with and without surface effects and interaction effects
+2) Compare those models with DIC
+3) Use the posteriors of the winning model as priors in a model with players who have only 10-50 matches recorded. We are particularly interested in the player random effect parameters
+
+## Models for Experienced players
+
+$Y_{ijk}$ is the outcome of the $k^{th}$ match for the $i^{th}$ player on the $j^{th}$ court surface
+$Y_ijk \sim \text{Bernoulli}(p_{ijk})$
+$X$ is the rank difference in the $k^{th}$ match. $Opponent - Player$
+$A_i$ is the random effect of the $i^{th}$ player  $A_i \sim N(0, \sigma_A^2)$
+$\alpha_j$ is the fixed effect of the $j^{th}$ court surface
+$\beta_0, \beta_1 \sim N(0, 10^2)$
+$E_{ijk} \overset{iid} \sim N(0, \sigma^2)$
+
+M1: Fixed surface effect with interaction
+$$ \text{logit}(p_{ijk}) = A_i + \alpha_j + (A \alpha)_{ij} + \beta_0 + \beta_1 X{ijk} + E_{ijk}$$
+M2: Additive model with fixed surface effect
+$$ \text{logit}(p_{ijk}) = A_i + \alpha_j + \beta_0 + \beta_1 X{ijk} + E_{ijk}$$
+M3: Random effects model with no consideration with surface effects
+$$ \text{logit}(p_{ijk}) = A_i + \beta_0 + \beta_1 X{ijk} + E_{ijk}$$
