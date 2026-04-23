@@ -4,7 +4,7 @@ output: pdf_document
 date: "2026-04-22"
 ---
 
-## Goal
+## Goal and Project Plan
 
 We want be able to predict the outcome of matches for tennis players who do not have much data. We also want to know if there is a considerable court surface effect.  
 
@@ -29,3 +29,22 @@ M2: Additive model with fixed surface effect
 $$ \text{logit}(p_{ijk}) = A_i + \alpha_j + \beta_0 + \beta_1 X{ijk} + E_{ijk}$$
 M3: Random effects model with no consideration with surface effects
 $$ \text{logit}(p_{ijk}) = A_i + \beta_0 + \beta_1 X{ijk} + E_{ijk}$$
+
+## Run.jags vs rjags (Delete before final product)
+*Delete this later.* This is the difference in code between run.jags and rjags. The as.mcmc.list converts the output into what rjags returns. We can extract DIC by the code below
+```{r}
+jags_fit = run.jags(model = model_string, data=data, monitor=params,
+                   n.chains=4, burnin=10000, sample=20000, modules="glm", 
+                   method="parallel", silent.jags = TRUE)
+
+jags_fit
+
+# Convert to rjags output for familiar plots
+samples = as.mcmc.list(jags_fit)
+par(mar = c(1, 1, 1, 1)) 
+plot(samples)
+
+DIC = extract(jags_fit, what = "dic")
+```
+
+## Jags code
