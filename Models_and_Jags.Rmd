@@ -48,3 +48,83 @@ DIC = extract(jags_fit, what = "dic")
 ```
 
 ## Jags code
+### Libraries
+```{r}
+source("Data_cleaning.R")
+```
+
+```{r}
+library(tidyverse)
+library(runjags)
+library(rjags)
+library(lme4)
+```
+
+
+### Preliminary
+
+```{r}
+data = list(
+  N = nrow(top_df), 
+  Y = top_df$outcome,
+  player = top_df$player,
+  surface = top_df$surface, 
+  X = top_df$rank_diff |> scale() |> as.numeric(),
+  n_players = length(unique(top_df$player)), 
+  n_surfaces = length(unique(top_df$surface))
+)
+
+# frequentist methods to see if we can decrease the vagueness of our priors
+# jags_df$player_surface = factor( paste(jags_df$player, jags_df$surface) )
+# jags_df$y = jags_df$outcome-1
+# glmer(y~surface+rank_diff+(1|player) + (1|player_surface), data=jags_df, family=binomial)
+
+model_string = "model{
+
+  #Likelihood
+  for(i in 1:N){
+    Y[i] ~ dbern(p[i])
+    logit(p[i]) <- beta0 + beta1*X[i] +
+                    A[player[i]] +
+                    alpha[surface[i]] + 
+                    gamma[player[i], surface[i]]
+  }
+  
+  for(i in 1:n_players){
+  
+    # Player effect
+    A[i] ~ dnorm(0, tau_A)
+    
+    for(j in 1:n_surfaces){
+    
+    # Interactoin effect
+      gamma[i, j] ~ dnorm(0, tau_inter)
+    }
+  }
+  
+  # Surface effect
+  for(j in 1:n_surfaces){
+    alpha[j] ~ dnorm(0, .25)     ## SD = 2
+  }
+  
+  # Other priors
+  beta0 ~ dnorm(0, .25)
+  beta1 ~ dnorm(0, .25)
+  
+  sigma_A ~ dt(0., 100., 2)T(0., )  ## Half-T with scale=0.1 and 2 df
+  sigma_inter ~ dt(0., 100., 2)T(0., )
+  tau_A <- 1/sigma_A^2
+  tau_inter <- 1/sigma_inter^2
+}"
+```
+
+```{r}
+interaction_fit = run.jags(model = model_string, data=data, 
+                   monitor=c("beta0", "beta1", "tau_A", "tau_inter"),
+                   n.chains=4, burnin=10000, sample=20000, modules="glm", 
+                   method="parallel")
+
+#, silent.jags = TRUE) 
+
+```
+

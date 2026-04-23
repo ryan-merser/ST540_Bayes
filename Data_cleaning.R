@@ -41,15 +41,16 @@ top_players = jags_df |>
   group_by(player) |>
   summarize(count = n()) |>
   filter(count >= 50) |>
-  select(player)
+  pull(player)
 
-top_df = jags_df |> filter(top_players %in% player)
+top_df = jags_df |> filter(player %in% top_players)
+
 
 # Players who have played 10 <= games < 50
-mid_players = jags_df |>mid_playerany_of()s = jags_df |>
+mid_players = jags_df |>
   group_by(player) |>
   summarize(count = n()) |>
-  filter(count >= 10 & count < 50) |>
-  select(player)
+  filter(count >= 10 & count <50) |>
+  pull(player)
 
-mid_df = jags_df |> filter(mid_players %in% player)
+mid_df = jags_df |> filter(player %in% mid_players)
