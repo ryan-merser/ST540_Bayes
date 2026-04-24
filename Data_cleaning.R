@@ -32,8 +32,8 @@ long_df
 
 # Converting the character values to unique numeric integers for jags to use
 jags_df = long_df |>
-  mutate(across(c(player, outcome, surface), as.factor)) |> 
-  mutate(across(c(player, outcome, surface), as.numeric)) |> 
+  mutate(across(c(player, surface), as.factor)) |> # removed outcome factor (leave as original 0/1 encoder)
+  mutate(across(c(player, surface), as.numeric)) |> 
   select(-tourney_date)
 
 # Players who have played >= 50 games
@@ -43,7 +43,9 @@ top_players = jags_df |>
   filter(count >= 50) |>
   pull(player)
 
-top_df = jags_df |> filter(player %in% top_players)
+top_df = jags_df |> 
+  filter(player %in% top_players) |>
+  mutate(player = as.numeric(as.factor(player))) # re-index
 
 
 # Players who have played 10 <= games < 50
@@ -53,4 +55,6 @@ mid_players = jags_df |>
   filter(count >= 10 & count <50) |>
   pull(player)
 
-mid_df = jags_df |> filter(player %in% mid_players)
+mid_df = jags_df |> 
+  filter(player %in% mid_players) |>
+  mutate(player = as.numeric(as.factor(player)))

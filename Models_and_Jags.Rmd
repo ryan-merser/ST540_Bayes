@@ -2,25 +2,32 @@
 title: "Model and Jags Code"
 output: pdf_document
 date: "2026-04-22"
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ## Goal and Project Plan
 
-We want be able to predict the outcome of matches for tennis players who do not have much data. We also want to know if there is a considerable court surface effect.  
+We want be able to predict the outcome of matches for tennis players who
+do not have much data. We also want to know if there is a considerable
+court surface effect.
 
-This will be accomplished with the following steps:
-1) Fit mixed effect models with players who have played over 50 matches with and without surface effects and interaction effects
-2) Compare those models with DIC
-3) Use the posteriors of the winning model as priors in a model with players who have only 10-50 matches recorded. We are particularly interested in the player random effect parameters
+This will be accomplished with the following steps: 1) Fit mixed effect
+models with players who have played over 50 matches with and without
+surface effects and interaction effects 2) Compare those models with DIC
+3) Use the posteriors of the winning model as priors in a model with
+players who have only 10-50 matches recorded. We are particularly
+interested in the player random effect parameters
 
 ## Models for Experienced players
 
-$Y_{ijk}$ is the outcome of the $k^{th}$ match for the $i^{th}$ player on the $j^{th}$ court surface
-$Y_ijk \sim \text{Bernoulli}(p_{ijk})$
+$Y_{ijk}$ is the outcome of the $k^{th}$ match for the $i^{th}$ player
+on the $j^{th}$ court surface $Y_{ijk} \sim \text{Bernoulli}(p_{ijk})$
 $X$ is the rank difference in the $k^{th}$ match. $Opponent - Player$
-$A_i$ is the random effect of the $i^{th}$ player  $A_i \sim N(0, \sigma_A^2)$
-$\alpha_j$ is the fixed effect of the $j^{th}$ court surface
-$\beta_0, \beta_1 \sim N(0, 10^2)$
+$A_i$ is the random effect of the $i^{th}$ player
+$A_i \sim N(0, \sigma_A^2)$ $\alpha_j$ is the fixed effect of the
+$j^{th}$ court surface $\beta_0, \beta_1 \sim N(0, 10^2)$
 $E_{ijk} \overset{iid} \sim N(0, \sigma^2)$
 
 M1: Fixed surface effect with interaction
@@ -31,8 +38,12 @@ M3: Random effects model with no consideration with surface effects
 $$ \text{logit}(p_{ijk}) = A_i + \beta_0 + \beta_1 X{ijk} + E_{ijk}$$
 
 ## Run.jags vs rjags (Delete before final product)
-*Delete this later.* This is the difference in code between run.jags and rjags. The as.mcmc.list converts the output into what rjags returns. We can extract DIC by the code below
-```{r}
+
+*Delete this later.* This is the difference in code between run.jags and
+rjags. The as.mcmc.list converts the output into what rjags returns. We
+can extract DIC by the code below
+
+```{r eval = F}
 jags_fit = run.jags(model = model_string, data=data, monitor=params,
                    n.chains=4, burnin=10000, sample=20000, modules="glm", 
                    method="parallel", silent.jags = TRUE)
@@ -48,7 +59,9 @@ DIC = extract(jags_fit, what = "dic")
 ```
 
 ## Jags code
+
 ### Libraries
+
 ```{r}
 source("Data_cleaning.R")
 ```
@@ -60,8 +73,11 @@ library(rjags)
 library(lme4)
 ```
 
-
 ### Preliminary
+
+Since our models are nested within each other, we'll conduct SSVS
+(Stochastic Search Variable Selection) to find the best variables. We
+can to this by enforcing hierarchy within our model string and adding a single ordinal indicator variable.
 
 ```{r}
 data = list(
@@ -86,8 +102,9 @@ model_string = "model{
     Y[i] ~ dbern(p[i])
     logit(p[i]) <- beta0 + beta1*X[i] +
                     A[player[i]] +
-                    alpha[surface[i]] + 
-                    gamma[player[i], surface[i]]
+                    # delta=0: M3, delta=1: M2, delta=2: M1
+                    step(delta - 0.5) * alpha[surface[i]] + 
+                    step(delta - 1.5) * gamma[player[i], surface[i]]
   }
   
   for(i in 1:n_players){
@@ -107,24 +124,90 @@ model_string = "model{
     alpha[j] ~ dnorm(0, .25)     ## SD = 2
   }
   
+  # SSVS indicators
+  # Single ordinal indicator: 0=M3, 1=M2, 2=M1
+  # Uniform prior over three models
+  delta ~ dcat(p_model[])   
+  p_model[1] <- 1/3         
+  p_model[2] <- 1/3
+  p_model[3] <- 1/3
+  
   # Other priors
   beta0 ~ dnorm(0, .25)
   beta1 ~ dnorm(0, .25)
   
-  sigma_A ~ dt(0., 100., 2)T(0., )  ## Half-T with scale=0.1 and 2 df
-  sigma_inter ~ dt(0., 100., 2)T(0., )
+  sigma_A ~ dt(0., 1., 4)T(0., )  ## Half-T with scale=1 and 4 df, changed to prevent overflow
+  sigma_inter ~ dt(0., 1., 4)T(0., )
   tau_A <- 1/sigma_A^2
   tau_inter <- 1/sigma_inter^2
 }"
 ```
 
+## JAGS model
+
 ```{r}
-interaction_fit = run.jags(model = model_string, data=data, 
-                   monitor=c("beta0", "beta1", "tau_A", "tau_inter"),
+ssvs_fit = run.jags(model = model_string, data=data, 
+                   monitor=c("beta0", "beta1", "delta", "sigma_A", "sigma_inter"),
                    n.chains=4, burnin=10000, sample=20000, modules="glm", 
                    method="parallel")
 
 #, silent.jags = TRUE) 
-
+# This took me about 15 minutes
 ```
+
+
+### Posterior model probabilities
+```{r}
+samples_mat <- as.matrix(as.mcmc.list(ssvs_fit))
+
+# Posterior probability of each model
+p_m3 <- mean(samples_mat[, "delta"] == 1)  # dcat indexes from 1
+p_m2 <- mean(samples_mat[, "delta"] == 2)
+p_m1 <- mean(samples_mat[, "delta"] == 3)
+
+cat("P(M3 - player only):      ", round(p_m3, 3), "\n")
+cat("P(M2 - additive surface): ", round(p_m2, 3), "\n")
+cat("P(M1 - interaction):      ", round(p_m1, 3), "\n")
+```
+Model 3 is completely ruled out, but the posterior probability is split on model 1
+and 2. May have to use DIC as a tiebreaker.
+
+### Convergence diagnostics check
+
+```{r}
+samples = as.mcmc.list(ssvs_fit)
+gelman.diag(samples)
+effectiveSize(samples)
+```
+
+
+### Trace plots 
+(not including delta (categorical))
+```{r}
+par(mar = c(2, 2, 2, 2))
+traceplot(samples[, c("beta0", "beta1", "sigma_A", "sigma_inter")])
+```
+
+## Where to Go Next:
+
+1.  SSVS model (as above) → interpret which model structure
+    is best, possibly supported with DIC evaluation.
+    
+2.  Winning model: refit with full parameter monitoring (including A[i],
+    alpha[j]) — you need posterior samples of all parameters to
+    construct priors.
+    
+3.  Prior extraction — summarize the posteriors of
+    beta0, beta1, sigma_A, and alpha[j] (means and precisions) to pass
+    as informative priors into the mid-player model 
+    
+4.  Mid-player model
+    using mid_df: same structure as the winning model but with tighter
+    priors from step 3, and monitor the player random effects A[i]
+    closely since that's your main scientific interest
+    
+5.  Results/comparison: compare posterior distributions of player
+    effects between the two groups, maybe a shrinkage plot showing how
+    the mid-player estimates are pulled toward the experienced-player
+    posteriors
 
