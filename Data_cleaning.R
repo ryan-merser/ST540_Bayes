@@ -58,3 +58,4 @@ mid_players = jags_df |>
 mid_df = jags_df |> 
   filter(player %in% mid_players) |>
   mutate(player = as.numeric(as.factor(player)))
+

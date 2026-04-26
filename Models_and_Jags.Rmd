@@ -172,8 +172,54 @@ cat("P(M1 - interaction):      ", round(p_m1, 3), "\n")
 Model 3 is completely ruled out, but the posterior probability is split on model 1
 and 2. May have to use DIC as a tiebreaker.
 
+Let us look at the data to see if we can see an interaction
+```{r}
+# Looking for interaction graphically
+A <- long_df |>
+  select(-tourney_date, -rank_diff) |>
+  group_by(surface, player) |>
+  summarize(outcome = mean(outcome), .groups = "drop")
+
+ggplot(A, aes(x = surface, y = outcome, group = player, color = player)) +
+  geom_line() +
+  geom_point() + 
+  theme(legend.position = "none")
+```
+There are too many players to see through the noise. This is likely why the model could not choose whether or not to include the interaction. 
+
+
+We can use the hiddenf library as a computational tool to test for interaction (in the frequentist way). *We can probably delete this later*
+
+```{r}
+library(hiddenf)
+
+wide <- A |>
+  pivot_wider(
+    names_from = surface,
+    values_from = outcome
+  )
+
+ymtx <- wide |>
+  column_to_rownames("player") |>
+  as.matrix()
+
+ymtx = na.omit(ymtx)
+out = HiddenF(t(ymtx))
+plot(out)
+
+#out = HiddenF(ymtx)
+# Can only do 20 rows, so choosing 20 at random
+index = sample(1:dim(ymtx)[1], size = 20)
+out = HiddenF(ymtx[index, ])
+plot(out)
+
+# There is evidence of interaction
+```
+
+
 ### Convergence diagnostics check
 
+*The gelman diagnostics are already in the runjags output*
 ```{r}
 samples = as.mcmc.list(ssvs_fit)
 gelman.diag(samples)
@@ -187,6 +233,42 @@ effectiveSize(samples)
 par(mar = c(2, 2, 2, 2))
 traceplot(samples[, c("beta0", "beta1", "sigma_A", "sigma_inter")])
 ```
+
+## Creating priors based on results
+
+```{r}
+results = rbind(samples[[1]], samples[[2]], samples[[3]], samples[[4]])
+```
+
+Hyperparameters for the sigmas
+```{r}
+nlogL.gamma = function(theta, x){
+  # Negative log-likelihood (that we want to minimize)
+ -sum(dgamma(x, shape=exp(theta[1]), rate=exp(theta[2]), log=TRUE))
+}
+
+set.seed(123)
+
+sig_a = results[, 4]
+fit_a = optim( c(0, 0), nlogL.gamma, x=sig_a^2, method="BFGS" )
+sig_int = results[, 5]
+fit_i = optim(c(0, 0), nlogL.gamma, x = sig_int^2, method = "BFGS")
+
+# Showing that the distribution matches the posterior we produced
+plot(density(sig_a^2), main = "Sigma_A^2")
+lines(density(rgamma(10000, shape=exp(fit_a$par[1]), rate=exp(fit_a$par[2]))), col="red")
+
+plot(density(sig_int^2), main = "Sigma_Interaction^2")
+lines(density(rgamma(10000, shape=exp(fit_i$par[1]), rate=exp(fit_i$par[2]))), col="red")
+
+# Saving the parameters as variables
+sig_aa = exp(fit_a$par[1])
+sig_ab = exp(fit_a$par[2])
+
+sig_ia = exp(fit_i$par[1])
+sig_ib = exp(fit_i$par[2])
+```
+*Note: We could dampen the effects of these priors by multiplying by a number in (0, 1)* 
 
 ## Where to Go Next:
 
