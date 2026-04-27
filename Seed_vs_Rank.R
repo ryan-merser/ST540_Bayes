@@ -16,11 +16,6 @@ atp_raw <- map_dfr(years, function(yr) {
 })
 #---------------------------Draw only needed columns-------------------------------
 # Keep only the columns we need, filter to top players and 3 surfaces
-atp_clean_seed <- atp_raw |>
-  select(winner_name, loser_name, surface, tourney_date, winner_seed, loser_seed) |> filter(surface %in% c("Clay", "Hard", "Grass")) |>
-  drop_na()
-
-dim(atp_clean_seed)
 
 atp_clean_rank <- atp_raw |>
   select(winner_name, loser_name, surface, tourney_date, winner_rank, loser_rank) |>
@@ -28,6 +23,16 @@ atp_clean_rank <- atp_raw |>
   drop_na()
 
 dim(atp_clean_rank)
+plot(density(atp_clean_rank$winner_rank))
+lines(density(atp_clean_rank$loser_rank))
+
+atp_clean_seed <- atp_raw |>
+  select(winner_name, loser_name, surface, tourney_date, winner_seed, loser_seed) |> filter(surface %in% c("Clay", "Hard", "Grass")) |>
+  drop_na()
+
+dim(atp_clean_seed)
+plot(density(atp_clean_seed$winner_seed))
+lines(density(atp_clean_seed$loser_seed))
 
 # Notice the difference in dimensions
 
@@ -188,6 +193,7 @@ table(mid_df2 |> select(outcome, surface))
 # Issues with using seed over rank
   # 1) A lot less data
   # 2) Limits to only seeded matches, which limits the scope of the investigation
+    # a) Eliminates round-robin, and preliminary matches typically
 
 #--------Interaction plots-------------------------------------------------
 
@@ -222,10 +228,10 @@ ggplot(interaction2, aes(x = surface, y = outcome, group = player, color = playe
 #--------------------Rank---------------------------------------------
 temp = top_df1 |> mutate(across(c(player, outcome, surface), as.factor))
 fit1 = glmer(outcome ~ 0+rank_diff + surface + (1 | player) + (1|(surface:player)), data = temp, family = "binomial")
-summary(fit1)
+summary(fit1) # AIC = 27992
 
 fit2 = glmer(outcome ~ 0+rank_diff + surface + (1 | player), data = temp, family = "binomial")
-summary(fit2)
+summary(fit2) # AIC = 28050
 # Model is worse with no interaction (Based on AIC)
 
 preds = predict(fit1, type = "response")
@@ -238,10 +244,10 @@ Accuracy #64% accuracy on training set
 #-------------------------Seed---------------------------------------------
 temp = top_df2 |> mutate(across(c(player, outcome, surface), as.factor))
 fit3 = glmer(outcome ~ 0+seed_diff + surface + (1 | player) + (1|(surface:player)), data = temp, family = "binomial")
-summary(fit3)
+summary(fit3) # AIC 1672
 
 fit4 = glmer(outcome ~ 0+seed_diff + surface + (1 | player), data = temp, family = "binomial")
-summary(fit4)
+summary(fit4) # AIC 1670
 # Model performance is similar with no interaction (Based on AIC)
 # I would still include it in this model bc it is less data, so less compuationally difficult
 
@@ -458,40 +464,89 @@ model_string_use = "model{
   tau_inter ~ dgamma(hyper_sigs[3], hyper_sigs[4])
 }"
 
-# Can only 
+# The distribution of interest are when the ranks are within the top-player differences, since that would indicate a "close match"
+# We believe that when the ranks are very far apart, it is not an interesting match and one should always bet on the higher ranked player
+# We will cut the values of the mid dataframe to only have rank differences within the top 95% of the rank differences with the top players
+
+mid_df1 = mid_df1 |>
+  filter(rank_diff >= quantile(top_df1$rank_diff, .025) & rank_diff <= quantile(top_df1$rank_diff, .975))
+  
+  
 data3 = list(
-  N = nrow(mid_df), 
+  N = nrow(mid_df1), 
   Y = mid_df$outcome,
-  player = mid_df$player,
-  surface = mid_df$surface, 
-  X = mid_df$rank_diff |> scale() |> as.numeric(),
-  n_players = length(unique(mid_df$player)), 
-  n_surfaces = length(unique(mid_df$surface)), 
-  hyper_sigs = hyper_sigs, 
-  hyper_norms = hyper_norms
+  player = mid_df1$player,
+  surface = mid_df1$surface, 
+  X = mid_df1$rank_diff |> scale() |> as.numeric(),
+  n_players = length(unique(mid_df1$player)), 
+  n_surfaces = length(unique(mid_df1$surface)), 
+  hyper_sigs = hyper_sigs1, 
+  hyper_norms = hyper_norms1
 )
 
+# We do not need to cut it here (but we did need to make a compromise on the sigma^2 interaction)
 data4 = list(
-  N = nrow(mid_df), 
-  Y = mid_df$outcome,
-  player = mid_df$player,
-  surface = mid_df$surface, 
-  X = mid_df$rank_diff |> scale() |> as.numeric(),
-  n_players = length(unique(mid_df$player)), 
-  n_surfaces = length(unique(mid_df$surface)), 
-  hyper_sigs = hyper_sigs, 
-  hyper_norms = hyper_norms
+  N = nrow(mid_df2), 
+  Y = mid_df2$outcome,
+  player = mid_df2$player,
+  surface = mid_df2$surface, 
+  X = mid_df$seed_diff |> scale() |> as.numeric(),
+  n_players = length(unique(mid_df2$player)), 
+  n_surfaces = length(unique(mid_df2$surface)), 
+  hyper_sigs = hyper_sigs2, 
+  hyper_norms = hyper_norms2
 )
 
-mid_fit = run.jags(model = model_string_use, data=data, 
+mid_fit1 = run.jags(model = model_string_use, data=data3, 
                    monitor=c("beta", "A", "B", "alpha"),
                    n.chains=4, burnin=10000, sample=20000, modules="glm", 
                    method="parallel")
-summary = summary(mid_fit)
-max(summary[, 11])
-min(summary[, 11])
-summary(summary)
+summary1 = summary(mid_fit1)
+max(summary1[, 11])
+min(summary1[, 11])
+summary(summary1)
 
-mid_samps = as.mcmc.list(mid_fit)
+mid_samps1 = as.mcmc.list(mid_fit1)
 
-rez = rbind(mid_samps[[1]], mid_samps[[2]], mid_samps[[3]], mid_samps[[4]])
+rez1 = rbind(mid_samps1[[1]], mid_samps1[[2]], mid_samps1[[3]], mid_samps1[[4]])
+
+#================Compare to Frequentist=========================================
+
+# Choose a good candidate player ()
+temp = mid_df1 |> group_by(player) |> summarize(mean(rank_diff)) 
+temp
+plot(temp)
+
+# Player 50 has played on all 3 surfaces and has a good range of rank diff
+tmp = mid_df1 |> filter(player == 50) |> dplyr::select(-player) |>
+  mutate(across(c(outcome, surface), as.factor))
+summary(tmp)
+plot(density(tmp$rank_diff))
+
+fit0 = glm( outcome ~ rank_diff + surface, data = tmp, family="binomial" )
+
+d.grid = expand.grid( rank_diff=c(-100, -50, 0, 50, 100),
+                      surface=levels(tmp$surface),
+                      Est=NA, Lower=NA, Upper=NA)
+
+d.grid$phat = predict(fit0, newdata=d.grid, type="response") |> round(3) 
+
+#Compare this with Bayesian outcome for player "X"
+
+d = tmp
+player = 50
+for ( i in 1:nrow(d.grid) ){     
+  surf = which(levels(temp$surface)==d.grid$surface[i])
+  mu = rez[,paste0("alpha[", surf, "]")] + 
+    rez[,"beta"]*d.grid$rank_diff[i] +
+    rez[,paste0("A[", player, "]")] + 
+    rez[,paste0("B[", player, ",", surf, "]")]
+  pr = 1/(1+exp(-mu))
+  d.grid[i,c("Est", "Lower", "Upper")] = round(quantile(pr, p=c(0.5, 0.025, 0.975)), 3)
+}
+
+d.grid
+
+#============================================================================
+# Next step: be able to find 50/50 odds of winning for a player given a court surface and a rank diff
+# Is there a PPC we should do for this model?
