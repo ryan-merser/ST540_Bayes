@@ -1,0 +1,66 @@
+---
+title: "Presentation"
+format: pptx
+editor: visual
+---
+
+# Motivation
+
+## Primary Goal
+
+- Watching tennis casually makes it hard to pick a player to root for
+- Big stars are easy to recognize, but most players are unfamiliar
+- Choosing an underdog is appealing, but risky without context
+- How can you identify a “safe” underdog worth rooting for, especially as a casual watcher?
+
+## Background/Introduction
+
+- Designed for casual viewers, not experts
+- Ignores complex factors (play style, endurance, etc.)
+- Uses only what you can easily see or look up:
+  - Players
+  - Court surface
+  - ATP ranking
+  
+Goal: Find a simple, data-informed way to pick an unknown player who is reasonably likely to win
+
+## Research gap
+
+- Other models exist that are similar to what we are doing, but... 
+  - They aren't bayesian 
+  - They are too simplistic (only considering one predictor) 
+  - They are too complex (Using too many player stats that the viewer would need to research) 
+  - They don't focus on low-data players
+
+Key gap: No simple, Bayesian model designed specifically for players with limited data
+
+# Model
+
+## Our Approach
+- Designed specifically for lesser-known / low-data players
+- Uses only information visible to casual viewers: (Out of match-data)
+  - Rankings, Court Surface, and Player names
+- Combines regression + point-based ideas
+- Bayesian framework allows us to borrow strength from well-studied players to produce more stable predictions with limited data
+
+## Test double
+Words
+
+```{r}
+#code
+A = 1:10
+plot(A)
+```
+## Only plot
+```{r}
+plot(A)
+```
+## Script
+
+*Script:*
+
+*Imagine you turn on the TV and a game of tennis is playing. You don't necessarily follow tennis very closely, but you like watching the games and you want to know who you should root for. This is really easy for the big names like Nadal, Federer, Djokovic, Alcaraz, but what about the smaller names? What if you want to root for the underdog, but don't want to risk getting your hopes up for nothing?*
+
+*My partner and I both casually enjoy tennis, and we thought this would be a fun algorithm to use next time we tune in to a match. We found this amazing repository from gitHub that has records of professional matches from 1968-2024. We have chose to hone in on data from the years 2019-2023 for completeness and recency.*
+
+*Now there are a number of factors determining who will win a match of tennis. Handed-ness, endurance, play style, but remember, we are causal fans, we don't know any of this, nor do we know the intricate rock-paper-scissors mechanics of these factors. We are assuming that you can only see what is on TV and only have the motivation to google who the underdog is in a given scenario. So, we know the player, the court surface, and the men's professional tennis (ATP) ranking. What now?*

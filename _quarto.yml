@@ -1,0 +1,7 @@
+format:
+  pptx:
+    slide-level: 2
+    incremental: true
+
+fig-width: 6
+fig-height: 4

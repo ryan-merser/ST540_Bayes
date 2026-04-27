@@ -1,0 +1,466 @@
+---
+title: "Model and Jags Code"
+output: pdf_document
+date: "2026-04-22"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## Goal and Project Plan
+
+We want be able to predict the outcome of matches for tennis players who
+do not have much data. We also want to know if there is a considerable
+court surface effect.
+
+This will be accomplished with the following steps: 1) Fit mixed effect
+models with players who have played over 50 matches with and without
+surface effects and interaction effects 2) Compare those models with DIC
+3) Use the posteriors of the winning model as priors in a model with
+players who have only 10-50 matches recorded. We are particularly
+interested in the player random effect parameters
+
+## Models for Experienced players
+
+$Y_{ijk}$ is the outcome of the $k^{th}$ match for the $i^{th}$ player
+on the $j^{th}$ court surface $Y_{ijk} \sim \text{Bernoulli}(p_{ijk})$
+$X$ is the rank difference in the $k^{th}$ match. $Opponent - Player$
+$A_i$ is the random effect of the $i^{th}$ player
+$A_i \sim N(0, \sigma_A^2)$ $\alpha_j$ is the fixed effect of the
+$j^{th}$ court surface $\beta_0, \beta_1 \sim N(0, 10^2)$
+$E_{ijk} \overset{iid} \sim N(0, \sigma^2)$
+
+M1: Fixed surface effect with interaction
+$$ \text{logit}(p_{ijk}) = A_i + \alpha_j + (A \alpha)_{ij} + \beta_0 + \beta_1 X{ijk}$$
+M2: Additive model with fixed surface effect
+$$ \text{logit}(p_{ijk}) = A_i + \alpha_j + \beta_0 + \beta_1 X{ijk}$$
+M3: Random effects model with no consideration with surface effects
+$$ \text{logit}(p_{ijk}) = A_i + \beta_0 + \beta_1 X{ijk}$$
+
+## Run.jags vs rjags (Delete before final product)
+
+*Delete this later.* This is the difference in code between run.jags and
+rjags. The as.mcmc.list converts the output into what rjags returns. We
+can extract DIC by the code below
+
+```{r eval = F}
+jags_fit = run.jags(model = model_string, data=data, monitor=params,
+                   n.chains=4, burnin=10000, sample=20000, modules="glm", 
+                   method="parallel", silent.jags = TRUE)
+
+jags_fit
+
+# Convert to rjags output for familiar plots
+samples = as.mcmc.list(jags_fit)
+par(mar = c(1, 1, 1, 1)) 
+plot(samples)
+
+DIC = extract(jags_fit, what = "dic")
+```
+
+## Jags code
+
+### Libraries
+
+```{r}
+source("Data_cleaning.R")
+```
+
+```{r}
+library(tidyverse)
+library(runjags)
+library(rjags)
+library(lme4)
+```
+
+### Preliminary
+
+```{r}
+temp = top_df |> mutate(across(c(player, outcome, surface), as.factor))
+fit = glmer(outcome ~ 0+rank_diff + surface + (1 | player) + (1|(surface:player)), data = temp, family = "binomial")
+
+summary(fit)
+
+preds = predict(fit, type = "response")
+preds = ifelse(preds > .5, 1, 0)
+table(top_df$outcome, preds)
+```
+
+
+Since our models are nested within each other, we'll conduct SSVS
+(Stochastic Search Variable Selection) to find the best variables. We
+can to this by enforcing hierarchy within our model string and adding a single ordinal indicator variable.
+
+```{r}
+data = list(
+  N = nrow(top_df), 
+  Y = top_df$outcome,
+  player = top_df$player,
+  surface = top_df$surface, 
+  X = top_df$rank_diff |> scale() |> as.numeric(),
+  n_players = length(unique(top_df$player)), 
+  n_surfaces = length(unique(top_df$surface))
+)
+
+# frequentist methods to see if we can decrease the vagueness of our priors
+# jags_df$player_surface = factor( paste(jags_df$player, jags_df$surface) )
+# jags_df$y = jags_df$outcome-1
+# glmer(y~surface+rank_diff+(1|player) + (1|player_surface), data=jags_df, family=binomial)
+
+model_string = "model{
+
+  #Likelihood
+  for(i in 1:N){
+    Y[i] ~ dbern(p[i])
+    logit(p[i]) <- beta0 + beta1*X[i] +
+                    A[player[i]] +
+                    # delta=0: M3, delta=1: M2, delta=2: M1
+                    step(delta - 0.5) * alpha[surface[i]] + 
+                    step(delta - 1.5) * gamma[player[i], surface[i]]
+  }
+  
+  for(i in 1:n_players){
+  
+    # Player effect
+    A[i] ~ dnorm(0, tau_A)
+    
+    for(j in 1:n_surfaces){
+    
+    # Interactoin effect
+      gamma[i, j] ~ dnorm(0, tau_inter)
+    }
+  }
+  
+  # Surface effect
+  for(j in 1:n_surfaces){
+    alpha[j] ~ dnorm(0, .25)     ## SD = 2
+  }
+  
+  # SSVS indicators
+  # Single ordinal indicator: 0=M3, 1=M2, 2=M1
+  # Uniform prior over three models
+  delta ~ dcat(p_model[])   
+  p_model[1] <- 1/3         
+  p_model[2] <- 1/3
+  p_model[3] <- 1/3
+  
+  # Other priors
+  beta0 ~ dnorm(0, .25)
+  beta1 ~ dnorm(0, .25)
+  
+  sigma_A ~ dt(0., 1., 4)T(0., )  ## Half-T with scale=1 and 4 df, changed to prevent overflow
+  sigma_inter ~ dt(0., 1., 4)T(0., )
+  tau_A <- 1/sigma_A^2
+  tau_inter <- 1/sigma_inter^2
+}"
+```
+
+## JAGS model
+
+```{r}
+ssvs_fit = run.jags(model = model_string, data=data, 
+                   monitor=c("beta0", "beta1", "delta", "sigma_A", "sigma_inter"),
+                   n.chains=4, burnin=10000, sample=20000, modules="glm", 
+                   method="parallel")
+
+#, silent.jags = TRUE) 
+# This took me about 15 minutes
+```
+
+
+### Posterior model probabilities
+```{r}
+samples_mat <- as.matrix(as.mcmc.list(ssvs_fit))
+
+# Posterior probability of each model
+p_m3 <- mean(samples_mat[, "delta"] == 1)  # dcat indexes from 1
+p_m2 <- mean(samples_mat[, "delta"] == 2)
+p_m1 <- mean(samples_mat[, "delta"] == 3)
+
+cat("P(M3 - player only):      ", round(p_m3, 3), "\n")
+cat("P(M2 - additive surface): ", round(p_m2, 3), "\n")
+cat("P(M1 - interaction):      ", round(p_m1, 3), "\n")
+```
+Model 3 is completely ruled out, but the posterior probability is split on model 1
+and 2. May have to use DIC as a tiebreaker.
+
+### Looking for interaction
+Let us look at the data to see if we can see an interaction
+```{r}
+# Looking for interaction graphically
+A <- long_df |>
+  select(-tourney_date, -rank_diff) |>
+  group_by(surface, player) |>
+  summarize(outcome = mean(outcome), .groups = "drop")
+
+ggplot(A, aes(x = surface, y = outcome, group = player, color = player)) +
+  geom_line() +
+  geom_point() + 
+  theme(legend.position = "none")
+```
+There are too many players to see through the noise. This is likely why the model could not choose whether or not to include the interaction. 
+
+
+We can use the hiddenf library as a computational tool to test for interaction (in the frequentist way). *We can probably delete this later*
+
+```{r}
+library(hiddenf)
+
+wide <- A |>
+  pivot_wider(
+    names_from = surface,
+    values_from = outcome
+  )
+
+ymtx <- wide |>
+  column_to_rownames("player") |>
+  as.matrix()
+
+ymtx = na.omit(ymtx)
+out = HiddenF(t(ymtx))
+plot(out)
+
+#out = HiddenF(ymtx)
+# Can only do 20 rows, so choosing 20 at random
+index = sample(1:dim(ymtx)[1], size = 20)
+out = HiddenF(ymtx[index, ])
+plot(out)
+
+# There is evidence of interaction
+```
+
+
+### Convergence diagnostics check
+
+*The gelman diagnostics are already in the runjags output*
+```{r}
+samples = as.mcmc.list(ssvs_fit)
+gelman.diag(samples)
+effectiveSize(samples)
+```
+
+
+### Trace plots 
+(not including delta (categorical))
+```{r}
+par(mar = c(2, 2, 2, 2))
+traceplot(samples[, c("beta0", "beta1", "sigma_A", "sigma_inter")])
+```
+
+## Winning Model
+
+```{r}
+model_string_use = "model{
+
+  #Likelihood
+  for(i in 1:N){
+    Y[i] ~ dbern(p[i])
+    logit(p[i]) <-  alpha[surface[i]] + beta*X[i] + 
+        A[player[i]] + B[player[i], surface[i]] 
+  }
+  
+  for(i in 1:n_players){
+  
+    # Player effect
+    A[i] ~ dnorm(0, tau_A)
+    
+    for(j in 1:n_surfaces){
+    
+    # Interaction effect
+      B[i, j] ~ dnorm(0, tau_inter)
+    }
+  }
+  
+  # Surface effect
+  for(j in 1:n_surfaces){
+    alpha[j] ~ dnorm(0, .25)     ## SD = 2
+  }
+  
+  beta ~ dnorm(0, .25)
+  
+  sigma_A ~ dt(0., 1., 4)T(0., )  ## Half-T with scale=1 and 4 df, changed to prevent overflow
+  sigma_inter ~ dt(0., 1., 4)T(0., )
+  tau_A <- 1/sigma_A^2
+  tau_inter <- 1/sigma_inter^2
+}"
+```
+```{r}
+interaction_fit = run.jags(model = model_string_use, data=data, 
+                   monitor=c("alpha", "beta", "sigma_A", "sigma_inter"),
+                   n.chains=4, burnin=10000, sample=20000, modules="glm", 
+                   method="parallel")
+samps = as.mcmc.list(interaction_fit)
+summary(samps)
+DIC_inter = extract(interaction_fit, what = "dic")
+```
+
+
+## Creating priors based on results
+
+```{r}
+results = rbind(samps[[1]], samps[[2]], samps[[3]], samps[[4]])
+```
+
+Hyperparameters for the sigmas
+```{r}
+nlogL.gamma = function(theta, x){
+  # Negative log-likelihood (that we want to minimize)
+ -sum(dgamma(x, shape=exp(theta[1]), rate=exp(theta[2]), log=TRUE))
+}
+
+set.seed(123)
+
+sig_a = results[, 4]
+fit_a = optim( c(0, 0), nlogL.gamma, x=1/sig_a^2, method="BFGS" )
+sig_int = results[, 5]
+lower <- quantile(sig_int, 0.025, na.rm = TRUE)
+
+sig_i_trimmed <- sig_int[sig_int >= lower]
+fit_i = optim(c(0, 0), nlogL.gamma, x = 1/sig_i_trimmed^2, method = "BFGS")
+
+# Showing that the distribution matches the posterior we produced
+plot(density(1/sig_a^2), main = "1/Sigma_A^2")
+lines(density(rgamma(10000, shape=exp(fit_a$par[1]), rate=exp(fit_a$par[2]))), col="red")
+
+plot(density(1/sig_i_trimmed^2), main = "1/Sigma_Interaction^2", xlim = c(0, 500))
+lines(density(rgamma(10000, shape=exp(fit_i$par[1]),
+                     rate=exp(fit_i$par[2]))), col="red")
+```
+*Note: We could dampen the effects of these priors by multiplying by a number in (0, 1)* 
+
+
+Saving hyperparameters as variables
+```{r}
+sig_aa = exp(fit_a$par[1])
+sig_ab = exp(fit_a$par[2])
+
+sig_ia = exp(fit_i$par[1])
+sig_ib = exp(fit_i$par[2])
+
+hyper_sigs = c(sig_aa, sig_ab, sig_ia, sig_ib)
+hyper_norms = summary(samps)$statistics[1:4, 1:2]
+```
+
+```{r}
+model_string_use = "model{
+
+  #Likelihood
+  for(i in 1:N){
+    Y[i] ~ dbern(p[i])
+    logit(p[i]) <-  alpha[surface[i]] + beta*X[i] + 
+        A[player[i]] + B[player[i], surface[i]] 
+  }
+  
+  for(i in 1:n_players){
+  
+    # Player effect
+    A[i] ~ dnorm(0, tau_A)
+    
+    for(j in 1:n_surfaces){
+    
+    # Interaction effect
+      B[i, j] ~ dnorm(0, tau_inter)
+    }
+  }
+  
+  # Surface effect
+  alpha[1] ~ dnorm(hyper_norms[1, 1], 1/hyper_norms[1, 2]^2)
+  alpha[2] ~ dnorm(hyper_norms[2, 1], 1/hyper_norms[2, 2]^2)
+  alpha[3] ~ dnorm(hyper_norms[3, 1], 1/hyper_norms[2, 2]^2)
+  
+  beta ~ dnorm(hyper_norms[4, 1], 1/hyper_norms[4, 2]^2)
+  
+  tau_A ~ dgamma(hyper_sigs[1], hyper_sigs[2])
+  tau_inter ~ dgamma(hyper_sigs[3], hyper_sigs[4])
+}"
+```
+```{r}
+data = list(
+  N = nrow(mid_df), 
+  Y = mid_df$outcome,
+  player = mid_df$player,
+  surface = mid_df$surface, 
+  X = mid_df$rank_diff |> scale() |> as.numeric(),
+  n_players = length(unique(mid_df$player)), 
+  n_surfaces = length(unique(mid_df$surface)), 
+  hyper_sigs = hyper_sigs, 
+  hyper_norms = hyper_norms
+)
+
+mid_fit = run.jags(model = model_string_use, data=data, 
+                   monitor=c("beta", "A", "B", "alpha"),
+                   n.chains=4, burnin=10000, sample=20000, modules="glm", 
+                   method="parallel")
+summary = summary(mid_fit)
+max(summary[, 11])
+min(summary[, 11])
+summary(summary)
+
+mid_samps = as.mcmc.list(mid_fit)
+
+rez = rbind(mid_samps[[1]], mid_samps[[2]], mid_samps[[3]], mid_samps[[4]])
+```
+
+```{r}
+ggplot(top_df, aes(rank_diff, col="top")) + geom_density() + facet_grid(~surface) +
+  geom_density(data=mid_df, aes(col="mid"))
+# ggplot(top_df, aes(rank_diff, col="top")) + geom_density() + facet_grid(~surface) +
+#   geom_density(data=mid_df, aes(col="mid"))+xlim(-200, 200)
+
+#Consider player "X" who played 10-50 games
+
+temp = mid_df |> group_by(player) |> summarize(mean(rank_diff))
+temp
+temp = mid_df |> filter(player == 9) |> dplyr::select(-player) |>
+  mutate(across(c(outcome, surface), as.factor))
+
+fit0 = glm( outcome ~ rank_diff+surface, data = temp, family="binomial" )
+
+d.grid = expand.grid( rank_diff=c(-20, -10, -5, 0, 5, 10, 20),
+                      surface=levels(temp$surface),
+                      Est=NA, Lower=NA, Upper=NA)
+
+d.grid$phat = predict(fit0, newdata=d.grid, type="response") |> round(3) 
+
+#Compare this with Bayesian outcome for player "X"
+
+d = temp
+player = 9
+for ( i in 1:nrow(d.grid) ){     
+  surf = which(levels(temp$surface)==d.grid$surface[i])
+  mu = rez[,paste0("alpha[", surf, "]")] + 
+       rez[,"beta"]*d.grid$rank_diff[i] +
+       rez[,paste0("A[", player, "]")] + 
+       rez[,paste0("B[", player, ",", surf, "]")]
+  pr = 1/(1+exp(-mu))
+  d.grid[i,c("Est", "Lower", "Upper")] = round(quantile(pr, p=c(0.5, 0.025, 0.975)), 3)
+}
+
+d.grid
+
+```
+
+## Where to Go Next:
+
+1.  SSVS model (as above) → interpret which model structure
+    is best, possibly supported with DIC evaluation.
+    
+2.  Winning model: refit with full parameter monitoring (including A[i],
+    alpha[j]) — you need posterior samples of all parameters to
+    construct priors.
+    
+3.  Prior extraction — summarize the posteriors of
+    beta0, beta1, sigma_A, and alpha[j] (means and precisions) to pass
+    as informative priors into the mid-player model 
+    
+4.  Mid-player model
+    using mid_df: same structure as the winning model but with tighter
+    priors from step 3, and monitor the player random effects A[i]
+    closely since that's your main scientific interest
+    
+5.  Results/comparison: compare posterior distributions of player
+    effects between the two groups, maybe a shrinkage plot showing how
+    the mid-player estimates are pulled toward the experienced-player
+    posteriors
+
+

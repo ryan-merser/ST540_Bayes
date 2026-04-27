@@ -92,7 +92,8 @@ mid_players1 = jags_df1 |>
 
 mid_df1 = jags_df1 |> 
   filter(player %in% mid_players1) |>
-  mutate(player = as.numeric(as.factor(player)))
+  arrange(player) |>
+  mutate(player = as.numeric(factor(player, levels = sort(mid_players1))))
 #-------------------------------------------------------------------------------
 
 jags_df2 = long_df2 |>
@@ -117,7 +118,8 @@ mid_players2 = jags_df2 |>
   group_by(player) |>
   summarize(count = n()) |>
   filter(count >= 10 & count <50) |>
-  pull(player)
+  pull(player) |>
+  arrange()
 
 mid_df2 = jags_df2 |> 
   filter(player %in% mid_players2) |>
@@ -548,5 +550,43 @@ for ( i in 1:nrow(d.grid) ){
 d.grid
 
 #============================================================================
-# Next step: be able to find 50/50 odds of winning for a player given a court surface and a rank diff
-# Is there a PPC we should do for this model?
+# Next step: How good is the model at predicting Mid-players?
+
+years <- 2024
+base_url <- "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_"
+
+atp_future <- map_dfr(years, function(yr) {
+  url <- paste0(base_url, yr, ".csv")
+  read_csv(url, show_col_types = FALSE)
+})
+#---------------------------Draw only needed columns-------------------------------
+# Keep only the columns we need, filter to top players and 3 surfaces
+
+atp_clean_future <- atp_future |>
+  select(winner_name, loser_name, surface, tourney_date, winner_rank, loser_rank) |>
+  filter(surface %in% c("Clay", "Hard", "Grass")) |>
+  drop_na()
+
+temp1 = atp_clean_rank |>
+  mutate(rank_diff = loser_rank - winner_rank, .keep = "unused")
+
+# Pivoting longer to make every player have a row
+long_df_f = temp1 |>
+  pivot_longer(
+    cols = c(winner_name, loser_name),
+    names_to = "role",
+    values_to = "player"
+  ) |>
+  mutate(outcome = if_else(role == "winner_name", 1, 0)) |>  # 1 if winner, 0 if loser
+  mutate(rank_diff = if_else(outcome == 1, rank_diff, -rank_diff)) |> # Rank_diff now opponent - player
+  select(player, outcome, surface, tourney_date, rank_diff) # Selecting only variables of interest
+
+#--------------------------------------------------------------------------
+# Creating future dataset
+mid_df_future = long_df_f |>
+  mutate(across(c(player, surface), as.factor)) |> # removed outcome factor (leave as original 0/1 encoder)
+  mutate(across(c(player, surface), as.numeric)) |> 
+  select(-tourney_date) |>
+  filter(player %in% mid_players1) |>
+  mutate(player = as.numeric(factor(player, levels = sort(mid_players1))))
+
