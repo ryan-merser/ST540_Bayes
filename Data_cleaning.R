@@ -10,13 +10,13 @@ atp_raw <- map_dfr(years, function(yr) {
 
 # Keep only the columns we need, filter to top players and 3 surfaces
 atp_clean <- atp_raw |>
-  select(winner_name, loser_name, surface, tourney_date, winner_rank, loser_rank, winner_seed, loser_seed) |>
+  select(winner_name, loser_name, surface, tourney_date, winner_rank, loser_rank, ) |>
   filter(surface %in% c("Clay", "Hard", "Grass")) |>
   drop_na()
 
 # Creating rank difference (loser - winner)
 temp = atp_clean |>
-  mutate(rank_diff = loser_seed - winner_seed, .keep = "unused")
+  mutate(rank_diff = loser_rank - winner_rank, .keep = "unused")
 
 # Pivoting longer to make every player have a row
 long_df = temp |>
