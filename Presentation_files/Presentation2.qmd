@@ -3,9 +3,8 @@ title: "Picking the Safe Underdog"
 subtitle: "A Bayesian Mixed-Effects Approach to ATP Tennis Prediction"
 author: "Ryan Mersereau and Naomi Novick"
 institute: "ST540 Final Project"
-format: 
-  pptx: 
-    reference-doc: template.pptx
+format: pptx
+editor: visual
 ---
 
 ## Motivation
