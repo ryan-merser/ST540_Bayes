@@ -572,11 +572,11 @@ atp_clean_future <- atp_future |>
   filter(surface %in% c("Clay", "Hard", "Grass")) |>
   drop_na()
 
-temp1 = atp_clean_rank |>
+temp_f = atp_clean_future |>
   mutate(rank_diff = loser_rank - winner_rank, .keep = "unused")
 
 # Pivoting longer to make every player have a row
-long_df_f = temp1 |>
+long_df_f = temp_f |>
   pivot_longer(
     cols = c(winner_name, loser_name),
     names_to = "role",
@@ -587,11 +587,44 @@ long_df_f = temp1 |>
   select(player, outcome, surface, tourney_date, rank_diff) # Selecting only variables of interest
 
 #--------------------------------------------------------------------------
+# Bringing over the factors player_levels <- sort(unique(mid_players1))
+
+player_lookup <- data.frame(
+  player = player_levels,
+  player_id = seq_along(player_levels)
+)
+
 # Creating future dataset
 mid_df_future = long_df_f |>
-  mutate(across(c(player, surface), as.factor)) |> # removed outcome factor (leave as original 0/1 encoder)
+  mutate(across(c(player, surface), as.factor)) |> 
   mutate(across(c(player, surface), as.numeric)) |> 
   select(-tourney_date) |>
   filter(player %in% mid_players1) |>
-  mutate(player = as.numeric(factor(player, levels = sort(mid_players1))))
+  full_join(player_lookup, by = "player") |>
+  select(-player) |>
+  rename(player = player_id) |>
+  drop_na()
+
+summary(mid_df_future)
+dim(mid_df_future) #~1/3 data
+
+
+d.grid = data.frame(mid_df_future |> select(-outcome),
+                    Est=NA, Lower=NA, Upper=NA)
+fit0 = glm( outcome ~ rank_diff + surface, data = mid_df1, family="binomial" )
+d.grid$phat = predict(fit0, newdata=d.grid, type="response") |> round(3) 
+
+for ( i in 1:nrow(d.grid) ){     
+  surf = d.grid$surface[i]
+  player = d.grid$player[i]
+  mu = rez[,paste0("alpha[", surf, "]")] + 
+    rez[,"beta"]*d.grid$rank_diff[i] +
+    rez[,paste0("A[", player, "]")] + 
+    rez[,paste0("B[", player, ",", surf, "]")]
+  pr = 1/(1+exp(-mu))
+  d.grid[i,c("Est", "Lower", "Upper")] = round(quantile(pr, p=c(0.5, 0.025, 0.975)), 3)
+}
+
+Results = data.frame(mid_df_future$outcome, d.grid)
+
 
