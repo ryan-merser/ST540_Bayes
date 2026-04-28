@@ -118,8 +118,7 @@ mid_players2 = jags_df2 |>
   group_by(player) |>
   summarize(count = n()) |>
   filter(count >= 10 & count <50) |>
-  pull(player) |>
-  arrange()
+  pull(player)
 
 mid_df2 = jags_df2 |> 
   filter(player %in% mid_players2) |>
@@ -323,6 +322,9 @@ samps1 = as.mcmc.list(interaction_fit1)
 summary(samps1)
 DIC_inter1 = extract(interaction_fit1, what = "dic")
 DIC_inter1
+# Mean deviance: 27591
+# Penalty: 228.6
+# Penalized deviance: 27820
 
 interaction_fit2 = run.jags(model = model_string_interaction, data=data2, 
                             monitor=c("alpha", "beta", "sigma_A", "sigma_inter"),
@@ -370,6 +372,9 @@ samps3 = as.mcmc.list(add_fit1)
 summary(samps3)
 DIC_add1 = extract(add_fit1, what = "dic")
 DIC_add1
+# Mean deviance: 27805
+# Penalty: 122.1
+# Penalized deviance: 27927
 
 add_fit2 = run.jags(model = model_string_add, data=data2, 
                             monitor=c("alpha", "beta", "sigma_A", "sigma_inter"),
