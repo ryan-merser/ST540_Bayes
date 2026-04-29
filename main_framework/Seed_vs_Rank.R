@@ -547,7 +547,7 @@ plot(density(tmp$rank_diff))
 
 fit0 = glm( outcome ~ rank_diff + surface, data = tmp, family="binomial" )
 
-d.grid = expand.grid( rank_diff=c(-100, -50, 0, 50, 100),
+d.grid = expand.grid( rank_diff=c(-50, -10, -5, 0, 5, 10, 50),
                       surface=levels(tmp$surface),
                       Est=NA, Lower=NA, Upper=NA)
 
@@ -657,3 +657,4 @@ freq_pred = predict(freq_mid_fit, mid_df_future, list = FALSE)
 freq_class = if_else(freq_pred >= .5, 1, 0) |> as.factor()
 caret::confusionMatrix(freq_class, mid_df_future$outcome |> as.factor(), positive = "1")
 # 55.85% correct, but sensitivity is only 20%!!
+
