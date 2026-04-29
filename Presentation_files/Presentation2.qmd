@@ -86,9 +86,9 @@ $\text{logit}(p_{ijk}) = A_i + \alpha_j + (\alpha A)_{ij} + \beta X_{ijk}$
 ## Posterior Predictions for Future data
 - Data from the next year (2024) and selected the players we just modeled
 - We used our model to predict the outcome of these matches
-- Our model had accuracy of 61.2% and specificity (true positive) of 54.4%
+- Our model had accuracy of 61.2% and sensitivity (true positive) of 54.4%
 - This is ok, but much better than a model that does not pool strength from the top players
-  - This model had accuracy of 55.9% but specificity of only 18.4%!!
+  - This model had accuracy of 55.9% but sensitivity of only 18.4%!!
 
 
 ## Summary (another plot?)
