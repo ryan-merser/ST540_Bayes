@@ -402,7 +402,7 @@ nlogL.gamma = function(theta, x){
 sig_a1 = results1[, 4]
 fit_a1 = optim( c(0, 0), nlogL.gamma, x=1/sig_a1^2, method="BFGS" )
 sig_int1 = results1[, 5]
-fit_i1 = optim(c(0, 0), nlogL.gamma, x = 1/sig_i1^2, method = "BFGS")
+fit_i1 = optim(c(0, 0), nlogL.gamma, x = 1/sig_int1^2, method = "BFGS")
 
 
 sig_a2 = results2[, 4]
@@ -419,7 +419,7 @@ fit_i2 = optim(c(0, 0), nlogL.gamma, x = 1/sig_i_trimmed^2, method = "BFGS")
 plot(density(1/sig_a1^2), main = "Rank 1/Sigma_A^2")
 lines(density(rgamma(10000, shape=exp(fit_a1$par[1]), rate=exp(fit_a1$par[2]))), col="red")
 
-plot(density(1/sig_i1^2), main = "1/Sigma_Interaction^2", xlim = c(0, 500))
+plot(density(1/sig_int1^2), main = "1/Sigma_Interaction^2", xlim = c(0, 50))
 lines(density(rgamma(10000, shape=exp(fit_i1$par[1]),
                      rate=exp(fit_i1$par[2]))), col="red")
 
@@ -475,13 +475,28 @@ model_string_use = "model{
 # We believe that when the ranks are very far apart, it is not an interesting match and one should always bet on the higher ranked player
 # We will cut the values of the mid dataframe to only have rank differences within the top 95% of the rank differences with the top players
 
-mid_df1 = mid_df1 |>
+setdiff(mid_df1 |> select(player), 
+        mid_df1 |>
+          filter(rank_diff >= quantile(top_df1$rank_diff, .025) & rank_diff <= quantile(top_df1$rank_diff, .975)) |> 
+          select(player))
+
+mid_players1 = mid_players1[-52]
+# mid_players1 = jags_df1 |>
+#   group_by(player) |>
+#   summarize(count = n()) |>
+#   filter(count >= 10 & count <50) |>
+#   pull(player)
+
+mid_df1 = jags_df1 |> 
+  filter(player %in% mid_players1) |>
+  arrange(player) |>
+  mutate(player = as.numeric(factor(player, levels = sort(mid_players1))))|>
   filter(rank_diff >= quantile(top_df1$rank_diff, .025) & rank_diff <= quantile(top_df1$rank_diff, .975))
-  
+
   
 data3 = list(
   N = nrow(mid_df1), 
-  Y = mid_df$outcome,
+  Y = mid_df1$outcome,
   player = mid_df1$player,
   surface = mid_df1$surface, 
   X = mid_df1$rank_diff |> scale() |> as.numeric(),
@@ -539,11 +554,11 @@ d.grid = expand.grid( rank_diff=c(-100, -50, 0, 50, 100),
 d.grid$phat = predict(fit0, newdata=d.grid, type="response") |> round(3) 
 
 #Compare this with Bayesian outcome for player "X"
-
+rez = rez1
 d = tmp
 player = 50
 for ( i in 1:nrow(d.grid) ){     
-  surf = which(levels(temp$surface)==d.grid$surface[i])
+  surf = which(levels(tmp$surface)==d.grid$surface[i])
   mu = rez[,paste0("alpha[", surf, "]")] + 
     rez[,"beta"]*d.grid$rank_diff[i] +
     rez[,paste0("A[", player, "]")] + 
@@ -588,7 +603,7 @@ long_df_f = temp_f |>
 
 #--------------------------------------------------------------------------
 # Bringing over the factors player_levels <- sort(unique(mid_players1))
-
+player_levels <- sort(unique(mid_players1))
 player_lookup <- data.frame(
   player = player_levels,
   player_id = seq_along(player_levels)
@@ -626,5 +641,19 @@ for ( i in 1:nrow(d.grid) ){
 }
 
 Results = data.frame(mid_df_future$outcome, d.grid)
+Results
 
+future_pred = Results |> select(mid_df_future.outcome, Est) |>
+  mutate(pred = round(Est)) |>
+  mutate(agree = mid_df_future.outcome == pred)
 
+caret::confusionMatrix(future_pred$pred |> as.factor(), future_pred$mid_df_future.outcome |> as.factor(), positive = "1")
+
+mean(future_pred$agree) #61% correct
+
+# Compare with base rank difference 
+freq_mid_fit = glm(outcome ~ rank_diff + surface*player, data = mid_df1)
+freq_pred = predict(freq_mid_fit, mid_df_future, list = FALSE)
+freq_class = if_else(freq_pred >= .5, 1, 0) |> as.factor()
+caret::confusionMatrix(freq_class, mid_df_future$outcome |> as.factor(), positive = "1")
+# 55.85% correct, but sensitivity is only 20%!!
