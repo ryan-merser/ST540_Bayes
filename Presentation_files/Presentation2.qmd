@@ -6,6 +6,79 @@ institute: "ST540 Final Project"
 format: pptx
 editor: visual
 ---
+```{r setup}
+library(tidyverse)
+library(runjags)
+library(rjags)
+library(lme4)
+
+set.seed(123)
+
+years <- 2019:2023
+base_url <- "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_"
+
+atp_raw <- map_dfr(years, function(yr) {
+  url <- paste0(base_url, yr, ".csv")
+  read_csv(url, show_col_types = FALSE)
+})
+#---------------------------Draw only needed columns-------------------------------
+# Keep only the columns we need, filter to top players and 3 surfaces
+
+atp_clean_rank <- atp_raw |>
+  select(winner_name, loser_name, surface, tourney_date, winner_rank, loser_rank) |>
+  filter(surface %in% c("Clay", "Hard", "Grass")) |>
+  drop_na()
+
+temp1 = atp_clean_rank |>
+  mutate(rank_diff = loser_rank - winner_rank, .keep = "unused")
+
+long_df1 = temp1 |>
+  pivot_longer(
+    cols = c(winner_name, loser_name),
+    names_to = "role",
+    values_to = "player"
+  ) |>
+  mutate(outcome = if_else(role == "winner_name", 1, 0)) |>  # 1 if winner, 0 if loser
+  mutate(rank_diff = if_else(outcome == 1, rank_diff, -rank_diff)) |> # Rank_diff now opponent - player
+  select(player, outcome, surface, tourney_date, rank_diff) # Selecting only variables of interest
+jags_df1 = long_df1 |>
+  mutate(across(c(player, surface), as.factor)) |> # removed outcome factor (leave as original 0/1 encoder)
+  mutate(across(c(player, surface), as.numeric)) |> 
+  select(-tourney_date)
+
+# Players who have played >= 50 games
+top_players1 = jags_df1 |>
+  group_by(player) |>
+  summarize(count = n()) |>
+  filter(count >= 50) |>
+  pull(player)
+
+top_df1 = jags_df1 |> 
+  filter(player %in% top_players1) |>
+  mutate(player = as.numeric(as.factor(player))) # re-index
+
+
+# Players who have played 10 <= games < 50
+mid_players1 = jags_df1 |>
+  group_by(player) |>
+  summarize(count = n()) |>
+  filter(count >= 10 & count <50) |>
+  pull(player)
+
+mid_df1 = jags_df1 |> 
+  filter(player %in% mid_players1) |>
+  arrange(player) |>
+  mutate(player = as.numeric(factor(player, levels = sort(mid_players1))))
+
+player_levels <- sort(unique(mid_players1))
+
+player_lookup <- data.frame(
+  player = player_levels,
+  player_id = seq_along(player_levels)
+)
+
+```
+
 
 ## Motivation
 
