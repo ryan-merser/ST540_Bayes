@@ -171,9 +171,25 @@ tmpm = mid_df1 |>
 ggplot(tmpt, aes(rank_diff, col="top")) + 
   geom_density() + 
   facet_grid(~surface) +
-  geom_density(data=tmpm, aes(col="mid")) + 
+  #geom_density(data=tmpm, aes(col="mid")) + 
   geom_density(data = jags_df1, aes(col = "all")) +
+  labs(title = "Distribution of Rank Across Surfaces") +
+  theme(plot.title = element_text(hjust = .5)) +
   xlim(-350, 350)
+
+df_plot <- bind_rows(
+  top_df1  |> mutate(group = "top"),
+  jags_df1 |> mutate(group = "all")
+)   
+ggplot(df_plot, aes(x = surface, fill = group)) +
+  geom_bar(aes(y = after_stat(prop), group = group),
+           position = "dodge") +
+  labs(
+    y = "Proportion",
+    fill = "Dataset",
+    title = "Proportion of Surfaces"
+  ) +
+  theme(plot.title = element_text(hjust = .5))
 
 # We would probably need to limit the mid_df to only be within the 95% range of the top_df values in order to make good predictions, 
 # but our normality assumption is violated
@@ -211,7 +227,21 @@ interaction2 <- long_df2 |>
 ggplot(interaction1, aes(x = surface, y = outcome, group = player, color = player)) +
   geom_line() +
   geom_point() + 
-  theme(legend.position = "none")
+  theme(legend.position = "none") +
+  labs(title = "Relationship Between Win Rate and Playing Surface", 
+       subtitle = "For Top Players") +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+
+temp = sample(unique(interaction1$player), 20)
+interaction1 |> filter(player %in% temp)
+
+ggplot(interaction1 |> filter(player %in% temp), aes(x = surface, y = outcome, group = player, color = player)) +
+  geom_line() +
+  geom_point() + 
+  theme(legend.position = "none") +
+  labs(title = "Relationship Between Win Rate and Playing Surface", 
+       subtitle = "For 20 Random Top Players") +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
 
 ggplot(interaction2, aes(x = surface, y = outcome, group = player, color = player)) +
   geom_line() +
@@ -705,5 +735,94 @@ freq_mid_fit = glm(outcome ~ rank_diff + surface*player, data = mid_df1)
 freq_pred = predict(freq_mid_fit, mid_df_future, list = FALSE)
 freq_class = if_else(freq_pred >= .5, 1, 0) |> as.factor()
 caret::confusionMatrix(freq_class, mid_df_future$outcome |> as.factor(), positive = "1")
+# 55.85% correct, but sensitivity is only 20%!!
+
+#==============================================================================
+```{r}
+years <- 2024
+base_url <- "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_"
+
+atp_future <- map_dfr(years, function(yr) {
+  url <- paste0(base_url, yr, ".csv")
+  read_csv(url, show_col_types = FALSE)
+})
+#---------------------------Draw only needed columns-------------------------------
+# Keep only the columns we need, filter to top players and 3 surfaces
+
+atp_clean_future <- atp_future |>
+  select(winner_name, loser_name, surface, tourney_date, winner_rank, loser_rank) |>
+  filter(surface %in% c("Clay", "Hard", "Grass")) |>
+  drop_na()
+
+temp_f = atp_clean_future |>
+  mutate(rank_diff = loser_rank - winner_rank, .keep = "unused")
+
+# Pivoting longer to make every player have a row
+long_df_f = temp_f |>
+  pivot_longer(
+    cols = c(winner_name, loser_name),
+    names_to = "role",
+    values_to = "player"
+  ) |>
+  mutate(outcome = if_else(role == "winner_name", 1, 0)) |>  # 1 if winner, 0 if loser
+  mutate(rank_diff = if_else(outcome == 1, rank_diff, -rank_diff)) |> # Rank_diff now opponent - player
+  select(player, outcome, surface, tourney_date, rank_diff) # Selecting only variables of interest
+
+#--------------------------------------------------------------------------
+# Bringing over the factors player_levels <- sort(unique(mid_players1))
+player_levels <- sort(unique(mid_players1))
+player_lookup <- data.frame(
+  player = player_levels,
+  player_id = seq_along(player_levels)
+)
+
+# Creating future dataset
+mid_df_future = long_df_f |>
+  mutate(across(c(player, surface), as.factor)) |> 
+  mutate(across(c(player, surface), as.numeric)) |> 
+  select(-tourney_date) |>
+  filter(player %in% mid_players1) |>
+  full_join(player_lookup, by = "player") |>
+  select(-player) |>
+  rename(player = player_id) |>
+  drop_na()
+
+d.grid = data.frame(mid_df_future |> select(-outcome),
+                    Est=NA, Lower=NA, Upper=NA)
+
+for ( i in 1:nrow(d.grid) ){     
+  surf = d.grid$surface[i]
+  player = d.grid$player[i]
+  mu = rez[,paste0("alpha[", surf, "]")] + 
+    rez[,"beta"]*d.grid$rank_diff[i] +
+    rez[,paste0("A[", player, "]")] + 
+    rez[,paste0("B[", player, ",", surf, "]")]
+  pr = 1/(1+exp(-mu))
+  d.grid[i,c("Est", "Lower", "Upper")] = quantile(pr, p=c(0.5, 0.025, 0.975))
+}
+
+Results = data.frame(mid_df_future$outcome, d.grid)
+
+future_pred = Results |> select(mid_df_future.outcome, Est) |>
+  mutate(pred = round(Est)) |>
+  mutate(agree = mid_df_future.outcome == pred)
+
+tab1 = table(future_pred$pred |> as.factor(), future_pred$mid_df_future.outcome |> as.factor())
+acc = sum(diag(tab1))/sum(tab1)
+spec = tab1[2, 2]/sum(tab1[, 2])
+print(paste("Accuracy from Bayesian Model: ", round(acc, 3)))
+print(paste("Specificity from Bayesian Model: ", round(spec, 3)))
+
+mean(future_pred$agree) #61% correct
+
+# Compare with base rank difference 
+freq_mid_fit = glm(outcome ~ rank_diff + surface*player, data = mid_df1)
+freq_pred = predict(freq_mid_fit, mid_df_future, list = FALSE)
+freq_class = if_else(freq_pred >= .5, 1, 0) |> as.factor()
+tab2 = table(freq_class, mid_df_future$outcome |> as.factor())
+acc = sum(diag(tab2))/sum(tab2)
+spec = tab2[2, 2]/sum(tab2[, 2])
+print(paste("Accuracy from Freqentist Model: ", round(acc, 3)))
+print(paste("Specificity from Frequentist Model: ", round(spec, 3)))
 # 55.85% correct, but sensitivity is only 20%!!
 
