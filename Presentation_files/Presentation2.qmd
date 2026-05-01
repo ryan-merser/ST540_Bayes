@@ -1,6 +1,6 @@
 ---
 title: "Picking the Safe Underdog"
-subtitle: "A Bayesian Mixed-Effects Approach to ATP Tennis Prediction"
+subtitle: "A Bayesian Mixed-Effects Approach to ATP Tennis Prediction."
 author: "Ryan Mersereau and Naomi Novick"
 institute: "ST540 Final Project"
 format: pptx
@@ -12,7 +12,7 @@ editor: visual
 -   When you watch sports, it is more fun to pick someone to root for (we don't condone gambling)\
 -   Casual tennis viewers struggle to pick a player to root for
 -   Big stars are recognizable, but most players are unfamiliar
--   Choosing an underdog is appealing, but risky without context of data
+-   Choosing an underdog is appealing, but risky without the context of data
 -   Goal: Build a simple, data-informed model for picking a "safe" underdog, designed for casual viewers
 
 ## Background
@@ -50,7 +50,7 @@ editor: visual
     -   $(\alpha A)_{ij} = B_{ij} \sim N(0, \sigma^2_{Aa})$: Player surface interaction
     -   $\beta, \alpha_i \sim N(0, 2^2)$: Vague priors on player match-up (rank difference) and surface effect
     - $\sigma^2_A, \sigma^2_B \sim$ Half Cauchy
--   Top-player posteriors used as informative priors for a fixed effect mid-player model
+-   Top-player posteriors used as informative priors for a fixed-effect mid-player model
 
 ## Model Assumptions
 
@@ -62,43 +62,44 @@ editor: visual
 
 ## Supplimentary Results: Surface & Rank Effects
 
--   SSVS determined that surface effect is significant
+-   SSVS determined that the surface effect is significant
 -   Rank difference is a significant positive predictor of winning probability 
   - Prob$(\beta > 0) = 1$
 -   DIC comparison between models to determine interaction is significant
+  - Interaction DIC: 27820 | Additive DIC: 27927
 
 ## Data Interaction
 
 ![](Interaction.png) ![](Sparse_interaction.png) ![](Famous_interaction.png)
 
-## Results: Posterior Predictions for Single player
+## Results: Posterior Predictions for Single Player
 
 -   Bayesian credible intervals are wider for mid-players than top players
 -   Less data = More uncertainty
--   Frequentist GLM estimates gives same result as conjugate vauge priors for Bayes
-  - lacks shrinkage and are more extreme at tails
+-   Frequentist GLM estimates give the same result as conjugate vague priors for Bayes
+  - lacks shrinkage and is more extreme at tails
 -   Plot shows frequentist (Vague Prior) vs Bayesian (Strong Prior) estimate for a single mid-player
 
 ![](Single_Player_Bayes_vs_Freq.png)
 
-## Posterior Predictions for Future data
+## Posterior Predictions for Future Data
 
--   Data from the next year (2024) and selected the players we just modeled
+-   Data from the next year (2024), and selected the players we just modeled
 -   We used our model to predict the outcome of these matches
--   Our model had accuracy of 61.2% and sensitivity (true positive) of 54.4%
+-   Our model had an accuracy of 61.2% and a sensitivity (true positive) of 54.4%
 -   This is ok, but much better than a model that does not pool strength from the top players
-    -   Vague model had accuracy of 55.9% but sensitivity of only 18.4%!!
+    -   The vague model had an accuracy of 55.9% but a sensitivity of only 18.4%!!
 
-## Who Should you Root for? (Summary of Fixed Effects)
+## Who Should You Root for? (Summary of Fixed Effects)
 
 ## Strengths & Limitations
 
 -   Shrinkage improves stability for low-data players
 -   Credible intervals communicate prediction uncertainty honestly
--   Rank difference along is a noisy signal, ignores form, injuries, head-to-head
--   Could expand time frame to capture larger player pool, track players along time, or have an internal database of more complex predictors per player
+-   Rank difference along is a noisy signal, ignores form, injuries, and head-to-head
+-   Could expand time frame to capture larger player pool, track players over time, or have an internal database of more complex predictors per player
 
-# Programming Details (Extra information Slides)
+# Programming Details (Extra Information Slides)
 
 ## Random effects Model
 -   SSVS: `delta ~ dcat([1/3, 1/3, 1/3])`
@@ -108,9 +109,9 @@ editor: visual
 - DIC: Interaction model 27820, Additive model 27927
 
 ## Extracting parameters
--   Variance hyperparameters fit via finding MLE of Gamma distribution likelihood built on top-player posteriors: Using method `optim(BFGS)`
+-   Variance hyperparameters fit via finding MLE of Gamma distribution likelihood built on top-player posteriors: Using method `optim(BFGS).`
 ![](Gamma_est_A.png) ![](Gamma_est_int.png)
-- Normal hyperparameters extracted from summary statistics exactly, use mean and SD from summary of MCMC.list$statistics
+- Normal hyperparameters extracted from summary statistics exactly, use mean and SD from the summary of MCMC.list$statistics
 - Rank difference slightly lower/wider for mid players than top players
   - Restricted fixed effect model to only the observations with rank_diff within the center 95% of top_player rank_diff quantile(.025, .975)
    - Player "Martin Cuevas" had no data within this limit
