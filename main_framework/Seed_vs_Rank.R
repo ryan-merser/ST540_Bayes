@@ -71,6 +71,7 @@ jags_df1 = long_df1 |>
   mutate(across(c(player, surface), as.numeric)) |> 
   select(-tourney_date)
 
+
 # Players who have played >= 50 games
 top_players1 = jags_df1 |>
   group_by(player) |>
@@ -134,17 +135,17 @@ ggplot(top_df2, aes(seed_diff, col="top")) +
 # Similar distributions in seed
 
 # Rank
-ggplot(top_df1, aes(rank_diff, col="top")) + 
+ggplot(top_df1, aes(rank_diff_scaled, col="top")) + 
   geom_density() + 
   facet_grid(~surface) +
   geom_density(data=mid_df1, aes(col="mid"))
 
 # Looking closer
-ggplot(top_df1, aes(rank_diff, col="top")) + 
+ggplot(top_df1, aes(rank_diff_scaled, col="top")) + 
   geom_density() + 
   facet_grid(~surface) +
   geom_density(data=mid_df1, aes(col="mid")) + 
-  xlim(-250, 250)
+  xlim(-5, 5)
 # Systematic difference in rank
 # Assumption that they both come from the same population is violated
 # We might be able to use rank if we limit the extreme values
@@ -219,6 +220,11 @@ interaction1 <- long_df1 |>
   group_by(surface, player) |>
   summarize(outcome = mean(outcome), .groups = "drop")
 
+interaction_famous = interaction1 |>
+  filter(player %in% 
+           c("Roger Federer", "Novak Djokovic", 
+             "Carlos Alcaraz", "Rafael Nadal"))
+
 interaction2 <- long_df2 |>
   select(-tourney_date, -seed_diff) |>
   group_by(surface, player) |>
@@ -230,6 +236,13 @@ ggplot(interaction1, aes(x = surface, y = outcome, group = player, color = playe
   theme(legend.position = "none") +
   labs(title = "Relationship Between Win Rate and Playing Surface", 
        subtitle = "For Top Players") +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+
+ggplot(interaction_famous, aes(x = surface, y = outcome, group = player, color = player)) +
+  geom_line() +
+  geom_point() + 
+  labs(title = "Relationship Between Win Rate and Playing Surface", 
+       subtitle = "For Famous Players") +
   theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
 
 temp = sample(unique(interaction1$player), 20)
@@ -248,6 +261,8 @@ ggplot(interaction2, aes(x = surface, y = outcome, group = player, color = playe
   geom_point() + 
   theme(legend.position = "none")
 
+
+
 # Same plots, but with different amounts of data. We could potentially group the players up based on these interactions
 # It looks like the players who do well on grass do not do well on clay and hard and vice versa
 
@@ -258,7 +273,7 @@ ggplot(interaction2, aes(x = surface, y = outcome, group = player, color = playe
 
 #--------------------Rank---------------------------------------------
 temp = top_df1 |> mutate(across(c(player, outcome, surface), as.factor))
-fit1 = glmer(outcome ~ 0+rank_diff + surface + (1 | player) + (1|(surface:player)), data = temp, family = "binomial")
+fit1 = glmer(outcome ~ 0+rank_diff_scaled + surface + (1 | player) + (1|(surface:player)), data = temp, family = "binomial")
 summary(fit1) # AIC = 27992
 
 fit2 = glmer(outcome ~ 0+rank_diff + surface + (1 | player), data = temp, family = "binomial")
@@ -448,10 +463,12 @@ fit_i2 = optim(c(0, 0), nlogL.gamma, x = 1/sig_i_trimmed^2, method = "BFGS")
 # Showing that the distribution matches the posterior we produced
 plot(density(1/sig_a1^2), main = "Rank 1/Sigma_A^2")
 lines(density(rgamma(10000, shape=exp(fit_a1$par[1]), rate=exp(fit_a1$par[2]))), col="red")
+legend("topright", c("Posterior Data", "Gamma estimate"), pch = 19, col = c("black", "red"))
 
 plot(density(1/sig_int1^2), main = "1/Sigma_Interaction^2", xlim = c(0, 50))
 lines(density(rgamma(10000, shape=exp(fit_i1$par[1]),
-                     rate=exp(fit_i1$par[2]))), col="red")
+                     rate=exp(fit_i1$par[2]))), col="red") 
+legend("topright", c("Posterior Data", "Gamma estimate"), pch = 19, col = c("black", "red"))
 
 plot(density(1/sig_a2^2), main = "Rank 1/Sigma_A^2")
 lines(density(rgamma(10000, shape=exp(fit_a2$par[1]), rate=exp(fit_a2$par[2]))), col="red")
@@ -600,8 +617,9 @@ for ( i in 1:nrow(d.grid) ){
 d.grid
 
 #---------------------------------------------------------------
-
-d.grid = expand.grid( rank_diff=c(-25, -10, -5, 0, 5, 10, 25),
+mu_scaled = mean(mid_df1$rank_diff)
+sigma_scaled = sd(mid_df1$rank_diff)
+d.grid = expand.grid( rank_diff=(c(-25, -10, -5, 0, 5, 10, 25) - mu_scaled/sigma_scaled),
                       surface=levels(tmp$surface),
                       Est=NA, Lower=NA, Upper=NA)
 fit0 = glm( outcome ~ rank_diff + surface, data = tmp, family="binomial" )
@@ -647,7 +665,82 @@ ggplot(d.grid, aes(x = rank_diff)) +
   scale_fill_manual(values = c("Bayesian" = "black")) +
   theme(plot.title = element_text(hjust = .5), 
         plot.subtitle = element_text(hjust = .5)) 
+#======================Player Effects=========================================
+player_levels <- sort(unique(mid_players1))
+player_lookup <- data.frame(
+  player = player_levels,
+  player_id = seq_along(player_levels), 
+  player_name = unique(long_df1$player)[player_levels]
+)
 
+# A: draws x players
+P = length(unique(mid_df1$player))
+S = 3
+A_mat <- sapply(1:P, function(p) rez[, paste0("A[", p, "]")])
+
+# B: draws x players x surfaces
+B_arr <- array(NA, dim = c(nrow(rez), P, S))
+for (p in 1:P) {
+  for (s in 1:S) {
+    B_arr[, p, s] <- rez[, paste0("B[", p, ",", s, "]")]
+  }
+}
+
+# choose surface s
+s <- 1 # Clay
+
+theta_s1 <- A_mat + B_arr[, , s]
+
+rank_df_s1 <- data.frame(
+  player = 1:P,
+  Est = apply(theta_s1, 2, median),
+  Pr = colMeans(theta_s1 > 0)
+) |>
+  dplyr::arrange(dplyr::desc(Est))
+colnames(rank_df_s1) = "Pr > 0"
+
+rank_df_s1[1:5, ]
+best_clay_ind = rank_df_s1$player[1:5]
+
+best_clay_names = player_lookup |> filter(player_id %in% best_clay_ind) |> select(player_name)
+cbind(best_clay_names, rank_df_s1[1:5, ])
+
+
+s <- 2 # Grass
+
+theta_s2 <- A_mat + B_arr[, , s]
+
+rank_df_s2 <- data.frame(
+  player = 1:P,
+  Est = apply(theta_s2, 2, median),
+  Pr = colMeans(theta_s2 > 0)
+) |>
+  dplyr::arrange(dplyr::desc(Est))
+colnames(rank_df_s2)[3] = "Pr > 0"
+
+rank_df_s2[1:5, ]
+best_grass_ind = rank_df_s2$player[1:5]
+
+best_grass_names = player_lookup |> filter(player_id %in% best_grass_ind) |> select(player_name)
+cbind(best_grass_names, rank_df_s2[1:5, ])
+
+s <- 3 # Hard
+
+theta_s3 <- A_mat + B_arr[, , s]
+
+rank_df_s3 <- data.frame(
+  player = 1:P,
+  Est = apply(theta_s3, 2, median),
+  Pr = colMeans(theta_s3 > 0)
+) |>
+  dplyr::arrange(dplyr::desc(Est))
+colnames(rank_df_s3)[3] = "Pr > 0"
+
+rank_df_s3[1:5, ]
+best_hard_ind = rank_df_s3$player[1:5]
+
+best_hard_names = player_lookup |> filter(player_id %in% best_hard_ind) |> select(player_name)
+cbind(best_hard_names, rank_df_s2[1:5, ])
 #============================================================================
 # Next step: How good is the model at predicting Mid-players?
 
@@ -738,7 +831,6 @@ caret::confusionMatrix(freq_class, mid_df_future$outcome |> as.factor(), positiv
 # 55.85% correct, but sensitivity is only 20%!!
 
 #==============================================================================
-```{r}
 years <- 2024
 base_url <- "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_"
 
