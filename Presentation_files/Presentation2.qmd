@@ -39,7 +39,7 @@ editor: visual
 -   "Top players": $\ge$ 50 matches
 -   "Mid players": 10-49 matches
 
-## Model (check this notation)
+## Model Blueprint
 
 ![](Flowchart.png)
 
